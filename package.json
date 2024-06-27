@@ -1,0 +1,19 @@
+{
+  "name": "trading_bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "devDependencies": {
+    "@swc/core": "^1.6.5",
+    "@types/node": "^20.14.9",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.2"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "telegraf": "^4.16.3"
+  },
+  "scripts": {
+    "start": "ts-node ./src/index.ts"
+  }
+}
