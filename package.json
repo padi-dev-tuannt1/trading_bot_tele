@@ -10,8 +10,10 @@
     "typescript": "^5.5.2"
   },
   "dependencies": {
+    "@uniswap/v2-sdk": "^4.4.1",
     "dotenv": "^16.4.5",
-    "telegraf": "^4.16.3"
+    "telegraf": "^4.16.3",
+    "viem": "^2.16.3"
   },
   "scripts": {
     "start": "ts-node ./src/index.ts"
