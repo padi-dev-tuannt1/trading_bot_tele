@@ -66,19 +66,21 @@ bot.action("import_wallet", (ctx) => {
   ctx.reply("Send the private key of the wallet");
 });
 bot.action("buy", (ctx) => {
-  const buttons = tokenAmounts.map((amount) => [
-    { text: `${amount} tokens`, callback_data: `buy_${amount}` },
-  ]);
-  ctx.reply("Select the amount to buy:", {
-    reply_markup: {
-      inline_keyboard: buttons,
-    },
-  });
+  ctx.reply("Enter the address token to buy");
+  if (ctx.chat?.id) {
+    userStates[ctx.chat.id] = "entering_address_for_buy";
+  }
 });
 bot.action(/buy_\d+(\.\d+)?/, async (ctx) => {
   const amount = ctx.match[0].split("_")[1];
   // Handle the token buying logic here with the selected amount
-  ctx.reply(`You have selected to buy ${amount} tokens.`);
+  if (ctx.chat?.id) {
+    ctx.reply(
+      `You have selected to buy ${amount} of token address ${
+        addressStates[ctx.chat?.id]
+      }`
+    );
+  }
 });
 bot.action("sell", (ctx) => {
   // Handle increment by 5 logic here
@@ -168,6 +170,19 @@ bot.on("message", async (ctx) => {
 
       userStates[ctx.chat.id] = "";
       break;
+    case "entering_address_for_buy":
+      if (ctx.text) {
+        addressStates[ctx.chat.id] = ctx.text;
+      }
+      const buttons = tokenAmounts.map((amount) => [
+        { text: `${amount} tokens`, callback_data: `buy_${amount}` },
+      ]);
+      buttons.push([{ text: "Sign Tx", callback_data: "sign_tx" }]);
+      ctx.reply("Select the amount to buy:", {
+        reply_markup: {
+          inline_keyboard: buttons,
+        },
+      });
     default:
       break;
   }
