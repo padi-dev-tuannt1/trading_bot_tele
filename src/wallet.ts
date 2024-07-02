@@ -457,7 +457,7 @@ export class MasterWalletClass {
     const pairAddress = await this.getPairAddress(token, nativeToken);
 
     // Setup provider, import necessary ABI ...
-    const reserves = await this.publicClient[token.chainId].readContract({
+    const reserves = await this.publicClient.readContract({
       address: pairAddress,
       abi: uniswapV2poolABI.abi,
       functionName: "getReserves",
@@ -545,7 +545,7 @@ export class MasterWalletClass {
       });
       return request;
     } else {
-      const { request } = await this.publicClient[chainId].simulateContract({
+      const { request } = await this.publicClient.simulateContract({
         address: this.router,
         abi: routerABI,
         functionName: methodName,
@@ -557,7 +557,41 @@ export class MasterWalletClass {
     }
   }
 
-  async executeSwap(walletClient, createSwap) {
+  async executeSwap(walletClient: any, createSwap: any) {
     return await walletClient.writeContract(createSwap);
+  }
+
+  async swap(
+    tokenIn: any,
+    tokenOut: any,
+    amountIn: any,
+    gasLimit: any,
+    walletClient: any,
+    account: any,
+    isFeeOnTransfer: any,
+    chainId: any
+  ) {
+    try {
+      const route = await this.getRoute(tokenIn, tokenOut, amountIn, chainId);
+      const swapOption = this.swapOptions(
+        0.5,
+        account.address,
+        isFeeOnTransfer
+      );
+      const swap = await this.createSwap(route, swapOption, gasLimit, account);
+      const hash = await this.executeSwap(walletClient, swap);
+      if (hash != null) {
+        console.log("Swap executed with hash : ", hash);
+        if (await checkTxHash(this.publicClient, hash)) {
+          return hash;
+        }
+        return false;
+      } else {
+        console.log("Swap failed");
+        return false;
+      }
+    } catch (error) {
+      console.log(error);
+    }
   }
 }

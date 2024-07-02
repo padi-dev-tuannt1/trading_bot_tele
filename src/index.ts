@@ -4,6 +4,8 @@ import dotenv from "dotenv";
 import { privateKeyToAccount } from "viem/accounts";
 import { formatEther } from "viem";
 import { createClient, verify } from "./utils/common";
+import { Token, WETH9 } from "@uniswap/sdk-core";
+
 dotenv.config();
 interface UserState {
   [key: string]: string;
@@ -12,14 +14,15 @@ interface AddressState {
   [key: string]: string;
 }
 const bot = new Telegraf(process.env.TG_BOT_TOKEN!);
-
-let expectingPrivateKey = false;
 const masterWalletClass = new MasterWalletClass();
 
 const userStates: UserState = {};
 const addressStates: AddressState = {};
-const tokenAmounts = [0.1, 0.5, 1, 5, 10];
-const walletAddress = "0x360FbEA2b1Da34D220B1386c8DDb84B2c2BD78ca";
+const amountSelections: { [key: number]: number } = {};
+const percentSellSelections: { [key: number]: number } = {};
+const chainId = 8453;
+const tokenAmounts = [0.00001, 0.00005, 1, 5, 10];
+const percentSells = [10, 25, 50, 75, 100];
 const accounts: any[] = [];
 const mainMenu = [
   /* Inline buttons. 2 side-by-side */
@@ -49,6 +52,64 @@ const mainMenu = [
   /* Also, we can have URL buttons. */
   [{ text: "Transfer", callback_data: "transfer" }],
 ];
+const amountKeyboard = (
+  selectedChoice?: number,
+  options: any[],
+  editAmountButton: any
+) => {
+  const buttons = options.map((option) => [
+    {
+      text: `${option === selectedChoice ? "✅ " + option : option} tokens`,
+      callback_data: `buy_${option}`,
+    },
+  ]);
+  if (editAmountButton) {
+    buttons.push(editAmountButton);
+  }
+  buttons.push([{ text: "Sign Tx", callback_data: "sign_tx" }]);
+
+  return buttons;
+};
+
+const percentSellKeyboard = (
+  selectedChoice?: number,
+  options: any[],
+  editPercentButton: any
+) => {
+  const buttons = options.map((option) => [
+    {
+      text: `${option === selectedChoice ? "✅ " + option : option} %`,
+      callback_data: `sell_${option}`,
+    },
+  ]);
+  if (editPercentButton) {
+    buttons.push(editPercentButton);
+  }
+  buttons.push([{ text: "Sign Tx", callback_data: "sign_tx" }]);
+
+  return buttons;
+};
+
+const swap = async (tokenIn: any, tokenOut: any, amountIn: any) => {
+  const privateKeyTest = process.env.PRIVATE_KEY;
+  const walletClient = createClient(privateKeyTest);
+  const account = privateKeyToAccount(`0x${privateKeyTest}`);
+  try {
+    const hash = await masterWalletClass.swap(
+      tokenIn,
+      tokenOut,
+      amountIn,
+      null,
+      walletClient,
+      account,
+      false,
+      chainId
+    );
+    return hash;
+  } catch (error) {
+    return false;
+  }
+};
 
 bot.start(async (ctx) => {
   ctx.reply(`Welcome to our trading tool!`, {
@@ -65,6 +126,7 @@ bot.action("import_wallet", (ctx) => {
   }
   ctx.reply("Send the private key of the wallet");
 });
+
 bot.action("buy", (ctx) => {
   ctx.reply("Enter the address token to buy");
   if (ctx.chat?.id) {
@@ -73,8 +135,21 @@ bot.action("buy", (ctx) => {
 });
 bot.action(/buy_\d+(\.\d+)?/, async (ctx) => {
   const amount = ctx.match[0].split("_")[1];
-  // Handle the token buying logic here with the selected amount
   if (ctx.chat?.id) {
+    amountSelections[ctx.chat.id] = Number(amount);
+    const editAmountButton = [
+      {
+        text: `✏️ token`,
+        callback_data: `edit_amount`,
+      },
+    ];
+    ctx.editMessageReplyMarkup({
+      inline_keyboard: amountKeyboard(
+        Number(amount),
+        tokenAmounts,
+        editAmountButton
+      ),
+    });
     ctx.reply(
       `You have selected to buy ${amount} of token address ${
         addressStates[ctx.chat?.id]
@@ -82,30 +157,73 @@ bot.action(/buy_\d+(\.\d+)?/, async (ctx) => {
     );
   }
 });
+bot.action("edit_amount", async (ctx) => {
+  ctx.reply("Enter the amount to buy");
+  if (ctx.chat?.id) {
+    userStates[ctx.chat.id] = "waiting_for_custom_amount";
+  }
+});
+
 bot.action("sell", (ctx) => {
-  // Handle increment by 5 logic here
-  ctx.reply("sell 0.7 TON");
+  ctx.reply("Enter the address token to sell");
+  if (ctx.chat?.id) {
+    userStates[ctx.chat.id] = "entering_address_for_sell";
+  }
 });
-bot.action("pump", (ctx) => {
-  // Handle increment by 5 logic here
-  ctx.reply("pump");
+bot.action(/sell_\d+(\.\d+)?/, async (ctx) => {
+  const percent = ctx.match[0].split("_")[1];
+  if (ctx.chat?.id) {
+    percentSellSelections[ctx.chat.id] = Number(percent);
+    const editPercentSellButton = [
+      {
+        text: `✏️ %`,
+        callback_data: `edit_sell_percent`,
+      },
+    ];
+    ctx.editMessageReplyMarkup({
+      inline_keyboard: percentSellKeyboard(
+        Number(percent),
+        percentSells,
+        editPercentSellButton
+      ),
+    });
+    ctx.reply(
+      `You have selected to sell ${percent} of token address ${
+        addressStates[ctx.chat?.id]
+      }`
+    );
+  }
 });
-bot.action("dump", (ctx) => {
-  // Handle increment by 5 logic here
-  ctx.reply("dump");
-});
-bot.action("make_volume", (ctx) => {
-  // Handle increment by 5 logic here
-  ctx.reply("make volume");
-});
-bot.action("keep_price", (ctx) => {
-  // Handle increment by 5 logic here
-  ctx.reply("keep price");
+bot.action("edit_sell_percent", async (ctx) => {
+  ctx.reply("Enter the percent to sell");
+  if (ctx.chat?.id) {
+    userStates[ctx.chat.id] = "waiting_for_custom_percent_sell";
+  }
 });
 bot.action("transfer", (ctx) => {
   ctx.reply("Enter the address of receiver");
   if (ctx.chat?.id) {
     userStates[ctx.chat.id] = "entering_address_when_transfer";
+  }
+});
+bot.action("sign_tx", async (ctx) => {
+  if (ctx.chat?.id) {
+    ctx.reply(
+      `You will buy ${amountSelections[ctx.chat.id]} ETH for ${
+        addressStates[ctx.chat.id]
+      }`
+    );
+    const tokenOut = new Token(Number(chainId), addressStates[ctx.chat.id], 18);
+    const result = await swap(
+      WETH9[chainId],
+      tokenOut,
+      amountSelections[ctx.chat.id]
+    );
+    if (result) {
+      ctx.reply(`Swap executed with hash ${result}`);
+    } else {
+      ctx.reply("Swap failed");
+    }
   }
 });
 
@@ -173,16 +291,85 @@ bot.on("message", async (ctx) => {
     case "entering_address_for_buy":
       if (ctx.text) {
         addressStates[ctx.chat.id] = ctx.text;
+        percentSellSelections[ctx.chat.id] = percentSells[0];
       }
-      const buttons = tokenAmounts.map((amount) => [
-        { text: `${amount} tokens`, callback_data: `buy_${amount}` },
-      ]);
-      buttons.push([{ text: "Sign Tx", callback_data: "sign_tx" }]);
+      const editAmountButton = [
+        {
+          text: `✏️ token`,
+          callback_data: `edit_amount`,
+        },
+      ];
       ctx.reply("Select the amount to buy:", {
         reply_markup: {
-          inline_keyboard: buttons,
+          inline_keyboard: amountKeyboard(
+            tokenAmounts[0],
+            tokenAmounts,
+            editAmountButton
+          ),
         },
       });
+      userStates[ctx.chat.id] = "";
+      break;
+    case "waiting_for_custom_amount":
+      const editAmountButton2 = [
+        {
+          text: `✅ ${ctx.text} token`,
+          callback_data: `buy_${ctx.text}`,
+        },
+      ];
+      amountSelections[ctx.chat.id] = Number(ctx.text);
+      ctx.reply("Select the amount to buy", {
+        reply_markup: {
+          inline_keyboard: amountKeyboard(
+            Number(ctx.text),
+            tokenAmounts,
+            editAmountButton2
+          ),
+        },
+      });
+      userStates[ctx.chat.id] = "";
+      break;
+    case "entering_address_for_sell":
+      if (ctx.text) {
+        addressStates[ctx.chat.id] = ctx.text;
+        amountSelections[ctx.chat.id] = percentSells[0];
+      }
+      const editSellAmountButton = [
+        {
+          text: `✏️ %`,
+          callback_data: `edit_sell_percent`,
+        },
+      ];
+      ctx.reply("Select the percent to sell:", {
+        reply_markup: {
+          inline_keyboard: percentSellKeyboard(
+            percentSells[0],
+            percentSells,
+            editSellAmountButton
+          ),
+        },
+      });
+      userStates[ctx.chat.id] = "";
+      break;
+    case "waiting_for_custom_percent_sell":
+      const editPercentCell = [
+        {
+          text: `✅ ${ctx.text} %`,
+          callback_data: `sell_${ctx.text}`,
+        },
+      ];
+      percentSellSelections[ctx.chat.id] = Number(ctx.text);
+      ctx.reply("Select the percent to sell", {
+        reply_markup: {
+          inline_keyboard: percentSellKeyboard(
+            Number(ctx.text),
+            percentSells,
+            editPercentCell
+          ),
+        },
+      });
+      userStates[ctx.chat.id] = "";
+      break;
     default:
       break;
   }
