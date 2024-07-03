@@ -24,34 +24,60 @@ const chainId = 8453;
 const tokenAmounts = [0.00001, 0.00005, 1, 5, 10];
 const percentSells = [10, 25, 50, 75, 100];
 const accounts: any[] = [];
-const mainMenu = [
-  /* Inline buttons. 2 side-by-side */
-  [
-    {
-      text: "Import wallet",
-      callback_data: "import_wallet",
-    },
-  ],
+const getMainMenu = () => {
+  return [
+    /* Inline buttons. 2 side-by-side */
+    [
+      {
+        text: "Import wallet",
+        callback_data: "import_wallet",
+      },
+    ],
+    [
+      { text: "Buy", callback_data: "buy" },
+      { text: "Sell", callback_data: "sell" },
+    ],
 
-  [
-    { text: "Buy", callback_data: "buy" },
-    { text: "Sell", callback_data: "sell" },
-  ],
+    /* One button */
+    [
+      { text: "Pump", callback_data: "pump" },
+      { text: "Dump", callback_data: "dump" },
+    ],
 
-  /* One button */
-  [
-    { text: "Pump", callback_data: "pump" },
-    { text: "Dump", callback_data: "dump" },
-  ],
+    [
+      { text: "Make volume", callback_data: "make_volume" },
+      { text: "Keep price", callback_data: "keep_price" },
+    ],
 
-  [
-    { text: "Make volume", callback_data: "make_volume" },
-    { text: "Keep price", callback_data: "keep_price" },
-  ],
+    /* Also, we can have URL buttons. */
+    [{ text: "Transfer", callback_data: "transfer" }],
+  ];
+};
 
-  /* Also, we can have URL buttons. */
-  [{ text: "Transfer", callback_data: "transfer" }],
+const backButton = [
+  {
+    text: "Back",
+    callback_data: "back_to_main_menu",
+  },
 ];
+function walletKeyboard(options: any[], action: any) {
+  const prefix =
+    action === "buy"
+      ? "walletBuy_"
+      : action === "sell"
+      ? "walletSell_"
+      : "walletTransfer_";
+
+  return options.map((option, index) => [
+    {
+      text: `wallet${index + 1} : ${
+        option.selected === true ? "✅ " + option.address : option.address
+      }`,
+      callback_data: `${prefix}${option.address}`,
+    },
+  ]);
+}
+
 const amountKeyboard = (
   selectedChoice?: number,
   options: any[],
@@ -67,6 +93,7 @@ const amountKeyboard = (
     buttons.push(editAmountButton);
   }
   buttons.push([{ text: "Sign Tx", callback_data: "sign_tx" }]);
+  buttons.push(backButton);
 
   return buttons;
 };
@@ -86,27 +113,52 @@ const percentSellKeyboard = (
     buttons.push(editPercentButton);
   }
   buttons.push([{ text: "Sign Tx", callback_data: "sign_tx" }]);
+  buttons.push(backButton);
 
   return buttons;
 };
 
-const swap = async (tokenIn: any, tokenOut: any, amountIn: any) => {
-  const privateKeyTest = process.env.PRIVATE_KEY;
-  const walletClient = createClient(privateKeyTest);
-  const account = privateKeyToAccount(`0x${privateKeyTest}`);
+const getDescription = async () => {
+  const walletAddressesAndBalancesPromises = accounts.map(
+    async (account, index) => {
+      const balance = formatEther(
+        await masterWalletClass.GetEthBalance(account.address)
+      );
+      return `Your wallet address ${index + 1} is ${
+        account.address
+      } with balance ${balance}.`;
+    }
+  );
+  const walletAddressesAndBalances = await Promise.all(
+    walletAddressesAndBalancesPromises
+  );
+  return walletAddressesAndBalances.join("\n");
+};
+
+const getSelectedAccounts = async (accounts: any[]) => {
+  return accounts.filter((account) => account.selected);
+};
+
+const swap = async (
+  tokenIn: any,
+  tokenOut: any,
+  amountIn: any,
+  account: any
+) => {
   try {
     const hash = await masterWalletClass.swap(
       tokenIn,
       tokenOut,
       amountIn,
       null,
-      walletClient,
-      account,
+      account.walletClient,
+      privateKeyToAccount(`0x${account.privateKey}`),
       false,
       chainId
     );
     return hash;
   } catch (error) {
+    console.log(error);
     return false;
   }
 };
@@ -114,7 +166,7 @@ const swap = async (tokenIn: any, tokenOut: any, amountIn: any) => {
 bot.start(async (ctx) => {
   ctx.reply(`Welcome to our trading tool!`, {
     reply_markup: {
-      inline_keyboard: mainMenu,
+      inline_keyboard: getMainMenu(),
     },
   });
 });
@@ -144,17 +196,57 @@ bot.action(/buy_\d+(\.\d+)?/, async (ctx) => {
       },
     ];
     ctx.editMessageReplyMarkup({
-      inline_keyboard: amountKeyboard(
-        Number(amount),
-        tokenAmounts,
-        editAmountButton
-      ),
+      inline_keyboard: [
+        ...walletKeyboard(accounts, "buy"),
+        ...amountKeyboard(Number(amount), tokenAmounts, editAmountButton),
+      ],
     });
     ctx.reply(
       `You have selected to buy ${amount} of token address ${
         addressStates[ctx.chat?.id]
       }`
     );
+  }
+});
+bot.action(/walletBuy_(.+)/, async (ctx) => {
+  const walletAddress = ctx.match[0].split("_")[1];
+  const accountIndex = accounts.findIndex(
+    (account) => account.address === walletAddress
+  );
+  if (accountIndex !== -1) {
+    accounts[accountIndex].selected = !accounts[accountIndex].selected;
+  }
+  const editAmountButton = [
+    {
+      text: `✏️ token`,
+      callback_data: `edit_amount`,
+    },
+  ];
+  if (ctx.chat?.id) {
+    ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        ...walletKeyboard(accounts, "buy"),
+        ...amountKeyboard(
+          amountSelections[ctx.chat.id],
+          tokenAmounts,
+          editAmountButton
+        ),
+      ],
+    });
+  }
+});
+bot.action(/walletTransfer_(.+)/, async (ctx) => {
+  const walletAddress = ctx.match[0].split("_")[1];
+  const accountIndex = accounts.findIndex(
+    (account) => account.address === walletAddress
+  );
+  if (accountIndex !== -1) {
+    accounts[accountIndex].selected = !accounts[accountIndex].selected;
+  }
+  if (ctx.chat?.id) {
+    ctx.editMessageReplyMarkup({
+      inline_keyboard: [...walletKeyboard(accounts, "transfer"), backButton],
+    });
   }
 });
 bot.action("edit_amount", async (ctx) => {
@@ -201,6 +293,11 @@ bot.action("edit_sell_percent", async (ctx) => {
   }
 });
 bot.action("transfer", (ctx) => {
+  ctx.reply(`Transfer token`, {
+    reply_markup: {
+      inline_keyboard: [...walletKeyboard(accounts, "transfer"), backButton],
+    },
+  });
   ctx.reply("Enter the address of receiver");
   if (ctx.chat?.id) {
     userStates[ctx.chat.id] = "entering_address_when_transfer";
@@ -214,19 +311,26 @@ bot.action("sign_tx", async (ctx) => {
       }`
     );
     const tokenOut = new Token(Number(chainId), addressStates[ctx.chat.id], 18);
-    const result = await swap(
-      WETH9[chainId],
-      tokenOut,
-      amountSelections[ctx.chat.id]
-    );
-    if (result) {
-      ctx.reply(`Swap executed with hash ${result}`);
-    } else {
-      ctx.reply("Swap failed");
-    }
+    const selectedAccounts = await getSelectedAccounts(accounts);
+    const amount = amountSelections[ctx.chat.id];
+    selectedAccounts.forEach(async (account) => {
+      const result = await swap(WETH9[chainId], tokenOut, amount, account);
+      if (result) {
+        ctx.reply(`Swap executed with hash ${result}`);
+      } else {
+        ctx.reply("Swap failed");
+      }
+    });
   }
 });
-
+bot.action("back_to_main_menu", async (ctx) => {
+  const description = await getDescription();
+  ctx.reply(`Welcome to our trading tool! ${description}`, {
+    reply_markup: {
+      inline_keyboard: getMainMenu(),
+    },
+  });
+});
 bot.on("message", async (ctx) => {
   switch (userStates[ctx.chat.id]) {
     case "entering_private_key":
@@ -238,29 +342,20 @@ bot.on("message", async (ctx) => {
       }
       ctx.reply(`Private key received: ${privateKey}`);
       const account = privateKeyToAccount(`0x${privateKey}`);
-      accounts.push(account);
+      const walletClient = createClient(privateKey);
+      accounts.push({
+        address: account.address,
+        privateKey: privateKey,
+        walletClient: walletClient,
+        selected: false,
+      });
       userStates[ctx.chat.id] = "";
-      const walletAddressesAndBalancesPromises = accounts.map(
-        async (account, index) => {
-          const balance = formatEther(
-            await masterWalletClass.GetEthBalance(account.address)
-          );
-          return `Your wallet address ${index + 1} is ${
-            account.address
-          } with balance ${balance}.`;
-        }
-      );
-
-      // Wait for all promises to resolve
-      const walletAddressesAndBalances = await Promise.all(
-        walletAddressesAndBalancesPromises
-      );
 
       // Join the resolved values into a single string
-      const result = walletAddressesAndBalances.join("\n");
-      ctx.reply(`Welcome to our trading tool! \n ${result}`, {
+      const description = await getDescription();
+      ctx.reply(`Welcome to our trading tool! \n ${description}`, {
         reply_markup: {
-          inline_keyboard: mainMenu,
+          inline_keyboard: getMainMenu(),
         },
       });
       break;
@@ -274,14 +369,15 @@ bot.on("message", async (ctx) => {
     case "entering_amount_when_transfer":
       ctx.reply(`You will send ${ctx.text} to ${addressStates[ctx.chat.id]}`);
       try {
-        const privateKeyTest = process.env.PRIVATE_KEY;
-        const walletClient = createClient(privateKeyTest);
-        const hash = await masterWalletClass.transferETH(
-          walletClient,
-          addressStates[ctx.chat.id],
-          ctx.text
-        );
-        ctx.reply(`Transfer executed with hash ${hash}`);
+        const selectedAccounts = await getSelectedAccounts(accounts);
+        selectedAccounts.forEach(async (account) => {
+          const hash = await masterWalletClass.transferETH(
+            account.walletClient,
+            addressStates[ctx.chat.id],
+            ctx.text
+          );
+          ctx.reply(`Transfer executed with hash ${hash}`);
+        });
       } catch (error) {
         ctx.reply(`${error}`);
       }
@@ -291,7 +387,7 @@ bot.on("message", async (ctx) => {
     case "entering_address_for_buy":
       if (ctx.text) {
         addressStates[ctx.chat.id] = ctx.text;
-        percentSellSelections[ctx.chat.id] = percentSells[0];
+        amountSelections[ctx.chat.id] = tokenAmounts[0];
       }
       const editAmountButton = [
         {
@@ -301,11 +397,10 @@ bot.on("message", async (ctx) => {
       ];
       ctx.reply("Select the amount to buy:", {
         reply_markup: {
-          inline_keyboard: amountKeyboard(
-            tokenAmounts[0],
-            tokenAmounts,
-            editAmountButton
-          ),
+          inline_keyboard: [
+            ...walletKeyboard(accounts, "buy"),
+            ...amountKeyboard(tokenAmounts[0], tokenAmounts, editAmountButton),
+          ],
         },
       });
       userStates[ctx.chat.id] = "";
@@ -320,11 +415,14 @@ bot.on("message", async (ctx) => {
       amountSelections[ctx.chat.id] = Number(ctx.text);
       ctx.reply("Select the amount to buy", {
         reply_markup: {
-          inline_keyboard: amountKeyboard(
-            Number(ctx.text),
-            tokenAmounts,
-            editAmountButton2
-          ),
+          inline_keyboard: [
+            ...walletKeyboard(accounts, "buy"),
+            ...amountKeyboard(
+              Number(ctx.text),
+              tokenAmounts,
+              editAmountButton2
+            ),
+          ],
         },
       });
       userStates[ctx.chat.id] = "";
@@ -332,7 +430,7 @@ bot.on("message", async (ctx) => {
     case "entering_address_for_sell":
       if (ctx.text) {
         addressStates[ctx.chat.id] = ctx.text;
-        amountSelections[ctx.chat.id] = percentSells[0];
+        percentSellSelections[ctx.chat.id] = percentSells[0];
       }
       const editSellAmountButton = [
         {
